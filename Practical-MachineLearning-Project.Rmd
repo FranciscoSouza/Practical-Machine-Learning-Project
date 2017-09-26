@@ -1,0 +1,89 @@
+---
+title: "Practical Machine Learning Project"
+author: "Francisco Souza"
+date: "9/25/2017"
+output: html_document
+---
+
+##Introduction
+========================================================
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)
+
+
+##Practical Machine Learning - Prediction Assignment Writeup
+========================================================
+
+This document describe the analysis done for the prediction assignment of the practical machine learning course.
+
+The first part is the declaration of the package which will be used. In addition to caret & randomForest already seen on the course, I used Hmisc to help me on the data analysis phases & foreach & doParallel to decrease the random forrest processing time by parallelising the operation.
+Note : to be reproductible, I also set the seed value.
+
+```{r}
+options(warn=-1)
+library(caret)
+library(randomForest)
+library(Hmisc)
+
+library(foreach)
+library(doParallel)
+set.seed(4356)
+```
+
+To start the process will be necessary to load the csv file data to dataframe and analyze the type & the completion rate of the data:
+
+There are some numeric data imported as factor due some characters ("#DIV/0!")
+
+ 
+```{r}
+# Download data
+trainingUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainingUrl, destfile = "./data/training.csv", method = "curl")
+# Read data
+data <- read.csv("./data/training.csv", na.strings = c("NA", "#DIV/0!"))
+```
+
+There are columns with a lot of missing data. Force the cast to numeric values for the specified columns:
+
+```{r}
+cData <- data
+for(i in c(8:ncol(cData)-1)) {cData[,i] = as.numeric(as.character(cData[,i]))}
+```
+
+ We will also filter some features which seem to be useless like "X"", timestamps, "new_window" and "num_window". We filter also user_name because we don't want learn from this feature (name cannot be a good feature in our case and we don't want to limit the classifier to the name existing in our training dataset)
+
+```{r}
+featuresnames <- colnames(cData[colSums(is.na(cData)) == 0])[-(1:7)]
+features <- cData[featuresnames]
+```
+
+
+Finished the dataframe. Now will be necessary split the dataset in two part : the first for training and the second for testing.
+
+```{r}
+xdata <- createDataPartition(y=features$classe, p=3/4, list=FALSE )
+training <- features[xdata,]
+testing <- features[-xdata,]
+```
+
+
+Train a classifier with the training data. 
+To do that we will use parallelise the processing with the foreach and doParallel package : we call registerDoParallel to instantiate the configuration. .
+```{r}
+registerDoParallel()
+model <- foreach(ntree=rep(150, 4), .combine=randomForest::combine) %dopar% randomForest(training[-ncol(training)], training$classe, ntree=ntree)
+```
+
+To evaluate the model use the confusionmatrix method and will focus on accuracy, sensitivity & specificity metrics :
+```{r}
+predictionsTr <- predict(model, newdata=training)
+confusionMatrix(predictionsTr,training$classe)
+
+predictionsTe <- predict(model, newdata=testing)
+confusionMatrix(predictionsTe,testing$classe)
+```
+
+Finished the model: The accuracy of 0.997 and very good sensitivity & specificity values on the testing dataset.
+It seems also very good because It scores 100% (20/20) on the Course Project Submission (the 20 values to predict)
+
+I also try to play with preprocessing generating PCA or scale & center the features but the accuracy was lower.
